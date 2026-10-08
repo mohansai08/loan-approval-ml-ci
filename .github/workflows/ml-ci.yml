@@ -49,7 +49,7 @@ jobs:
         with:
           name: loan-approval-ml-artifacts
           path: |
-            loan_approval_model.pkl
+            loan_approval_model_misssing.pkl
             metrics.json
             loan_approval_ci_data.csv
           if-no-files-found: error
