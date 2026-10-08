@@ -49,8 +49,8 @@ jobs:
         with:
           name: loan-approval-ml-artifacts
           path: |
-            loan_approval_model_missing.pkl
-            metrics_missing.json
-            loan_approval_ci_data_missing.csv
+            loan_approval_model.pkl
+            metrics.json
+            loan_approval_ci_data.csv
           if-no-files-found: error
           retention-days: 7
