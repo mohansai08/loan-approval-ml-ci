@@ -43,3 +43,14 @@ jobs:
       - name: Run automated ML tests
         run: |
           python -m unittest test_ml_pipeline.py -v
+
+      - name: Upload validated ML artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: loan-approval-ml-artifacts
+          path: |
+            loan_approval_model.pkl
+            metrics.json
+            loan_approval_ci_data.csv
+          if-no-files-found: error
+          retention-days: 7
