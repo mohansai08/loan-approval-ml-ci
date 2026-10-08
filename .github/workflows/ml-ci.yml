@@ -36,6 +36,10 @@ jobs:
         run: |
           python train_model.py
 
+      - name: Check ML quality gate
+        run: |
+          python quality_gate.py
+
       - name: Run automated ML tests
         run: |
           python -m unittest test_ml_pipeline.py -v
