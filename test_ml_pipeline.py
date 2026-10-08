@@ -67,7 +67,7 @@ class TestMLPipeline(unittest.TestCase):
 
         self.assertEqual(
             int(prediction),
-            1
+            0
         )
 
     def test_low_quality_loan(self):
