@@ -1,14 +1,13 @@
-name: Loan Approval ML CI
+
+name: Loan Approval ML CI-CD
 
 on:
   push:
     branches:
       - main
-
   pull_request:
     branches:
       - main
-
   workflow_dispatch:
 
 permissions:
@@ -19,33 +18,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Get repository code
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # 2. Set up Python
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
+      # 3. Install dependencies
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
+      # 4. Train the Loan Approval model
       - name: Train Loan Approval model
-        run: |
-          python train_model.py
+        run: python train_model.py
 
+      # 5. Validate model accuracy
       - name: Check ML quality gate
-        run: |
-          python quality_gate.py
+        run: python quality_gate.py
 
+      # 6. Run existing ML pipeline tests
       - name: Run automated ML tests
-        run: |
-          python -m unittest test_ml_pipeline.py -v
-            - name: Run prediction application tests
+        run: python -m unittest test_ml_pipeline.py -v
+
+      # 7. Test the Flask prediction API
+      - name: Run prediction application tests
         run: python -m unittest test_app.py -v
 
+      # 8. Prepare the deployable release candidate
       - name: Prepare release candidate
         run: |
           mkdir -p release_candidate
@@ -53,16 +59,9 @@ jobs:
           cp loan_approval_model.pkl release_candidate/
           cp metrics.json release_candidate/
           cp requirements.txt release_candidate/
-          printf "Loan Approval Prediction ML Application\nRun: python app.py\nEndpoint: POST /predict\n" > release_candidate/DEPLOYMENT.txt
+          printf 'Loan Approval Prediction ML Application\nRun: python app.py\nEndpoint: POST /predict\n' > release_candidate/DEPLOYMENT.txt
 
-      - name: Upload release candidate
-        uses: actions/upload-artifact@v7
-        with:
-          name: loan-approval-ml-release
-          path: release_candidate/
-          if-no-files-found: error
-          retention-days: 7
-          
+      # 9. Preserve the Practical 4 ML artifacts
       - name: Upload validated ML artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -71,5 +70,14 @@ jobs:
             loan_approval_model.pkl
             metrics.json
             loan_approval_ci_data.csv
+          if-no-files-found: error
+          retention-days: 7
+
+      # 10. Upload the Practical 5 release candidate
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: loan-approval-ml-release
+          path: release_candidate/
           if-no-files-found: error
           retention-days: 7
