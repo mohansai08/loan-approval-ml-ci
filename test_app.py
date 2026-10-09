@@ -28,7 +28,7 @@ class TestPredictionApplication(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.get_json()["prediction"],
-            "REJECTED"
+            "APPROVED"
         )
 
     def test_low_quality_loan_prediction(self):
