@@ -67,11 +67,10 @@ jobs:
       - name: Wait for application to become ready
         run: |
           for i in {1..15}; do
-            if curl --fail --silent http://localhost:5001/; then
+            if curl --fail --silent http://localhost:5000/; then
               echo "Application is ready."
               exit 0
             fi
-
             echo "Waiting for application... attempt $i"
             sleep 2
           done
