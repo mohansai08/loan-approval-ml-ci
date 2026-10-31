@@ -51,7 +51,7 @@ jobs:
       - name: Run prediction application tests
         run: python -m unittest test_app.py -v
 
-      # 8. Prepare the deployable release candidate
+            # 8. Prepare the Docker-ready release candidate
       - name: Prepare release candidate
         run: |
           mkdir -p release_candidate
@@ -59,6 +59,8 @@ jobs:
           cp loan_approval_model.pkl release_candidate/
           cp metrics.json release_candidate/
           cp requirements.txt release_candidate/
+          cp Dockerfile release_candidate/
+          cp .dockerignore release_candidate/
           printf 'Loan Approval Prediction ML Application\nRun: python app.py\nEndpoint: POST /predict\n' > release_candidate/DEPLOYMENT.txt
 
       # 9. Preserve the Practical 4 ML artifacts
