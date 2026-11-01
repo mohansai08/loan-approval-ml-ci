@@ -1,3 +1,4 @@
+
 from pathlib import Path
 
 import joblib
@@ -26,14 +27,26 @@ def load_model():
     return joblib.load(MODEL_PATH)
 
 
+# Root endpoint
 @app.get("/")
-def health_check():
+def home():
     return jsonify({
         "status": "ok",
+        "service": "loan-approval-prediction",
+        "message": "Loan Approval Prediction API is running"
+    }), 200
+
+
+# Dedicated health check endpoint
+@app.get("/health")
+def health():
+    return jsonify({
+        "status": "healthy",
         "service": "loan-approval-prediction"
-    })
+    }), 200
 
 
+# Loan prediction endpoint
 @app.post("/predict")
 def predict():
     data = request.get_json(silent=True)
@@ -63,12 +76,14 @@ def predict():
 
     prediction_code = int(model.predict(sample)[0])
 
-    prediction = "APPROVED" if prediction_code == 1 else "REJECTED"
+    prediction = (
+        "APPROVED" if prediction_code == 1 else "REJECTED"
+    )
 
     return jsonify({
         "prediction": prediction,
         "prediction_code": prediction_code
-    })
+    }), 200
 
 
 if __name__ == "__main__":
