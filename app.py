@@ -8,6 +8,8 @@ from pathlib import Path
 import joblib
 import pandas as pd
 from flask import Flask, jsonify, request, g
+from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 # --------------------------------------------------
 # 1. APPLICATION AND LOGGING CONFIGURATION
@@ -21,7 +23,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger("loan-approval-api")
-
 app = Flask(__name__)
 
 MODEL_PATH = Path("loan_approval_model.pkl")
@@ -33,12 +34,35 @@ FEATURES = [
     "loan_amnt"
 ]
 
-# Do not log actual loan input values.
-SAFE_INPUT_FIELDS = set()
+# --------------------------------------------------
+# 2. PROMETHEUS METRICS
+# --------------------------------------------------
 
+HTTP_REQUESTS = Counter(
+    "loan_api_http_requests_total",
+    "Total HTTP requests",
+    ["method", "path", "status"]
+)
+
+HTTP_LATENCY = Histogram(
+    "loan_api_http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "path"]
+)
+
+PREDICTIONS = Counter(
+    "loan_api_predictions_total",
+    "Total loan prediction attempts",
+    ["result"]
+)
+
+MODEL_LOADED = Gauge(
+    "loan_api_model_loaded",
+    "Whether the loan approval model is loaded"
+)
 
 # --------------------------------------------------
-# 2. MODEL LOADING WITH ERROR TRACKING
+# 3. MODEL LOADING
 # --------------------------------------------------
 
 def load_model():
@@ -48,16 +72,20 @@ def load_model():
                 "loan_approval_model.pkl was not found."
             )
 
-        model = joblib.load(MODEL_PATH)
+        loaded_model = joblib.load(MODEL_PATH)
+
+        MODEL_LOADED.set(1)
 
         logger.info(
             "event=model_loaded model_file=%s",
             MODEL_PATH.name
         )
 
-        return model
+        return loaded_model
 
     except Exception:
+        MODEL_LOADED.set(0)
+
         logger.exception(
             "event=model_load_failed model_file=%s",
             MODEL_PATH.name
@@ -65,7 +93,6 @@ def load_model():
         raise
 
 
-# Load the model when the application starts.
 try:
     model = load_model()
 except Exception:
@@ -74,9 +101,8 @@ except Exception:
 
 logger.info("event=application_started service=loan-approval-prediction")
 
-
 # --------------------------------------------------
-# 3. REQUEST AND RESPONSE LOGGING MIDDLEWARE
+# 4. REQUEST LOGGING AND METRICS MIDDLEWARE
 # --------------------------------------------------
 
 @app.before_request
@@ -91,10 +117,26 @@ def before_request():
 
 @app.after_request
 def after_request(response):
+
     request_id = getattr(g, "request_id", "unknown")
     start_time = getattr(g, "start_time", time.perf_counter())
 
-    duration_ms = (time.perf_counter() - start_time) * 1000
+    duration = time.perf_counter() - start_time
+    duration_ms = duration * 1000
+
+    # Do not count Prometheus scraping as normal API traffic.
+    if request.path != "/metrics":
+
+        HTTP_REQUESTS.labels(
+            method=request.method,
+            path=request.path,
+            status=str(response.status_code)
+        ).inc()
+
+        HTTP_LATENCY.labels(
+            method=request.method,
+            path=request.path
+        ).observe(duration)
 
     level = (
         logging.WARNING
@@ -118,7 +160,7 @@ def after_request(response):
 
 
 # --------------------------------------------------
-# 4. ROOT ENDPOINT
+# 5. ROOT ENDPOINT
 # --------------------------------------------------
 
 @app.get("/")
@@ -131,7 +173,7 @@ def home():
 
 
 # --------------------------------------------------
-# 5. HEALTH CHECK ENDPOINT
+# 6. HEALTH CHECK
 # --------------------------------------------------
 
 @app.get("/health")
@@ -143,16 +185,15 @@ def health():
 
 
 # --------------------------------------------------
-# 6. LOAN PREDICTION WITH LOGGING
+# 7. LOAN PREDICTION
 # --------------------------------------------------
 
-@app.post("/predict")
+@app.post("/predict") 
 def predict():
 
     try:
         data = request.get_json(silent=True)
 
-        # Validate JSON request body.
         if not data or not isinstance(data, dict):
             logger.warning(
                 "event=invalid_json request_id=%s",
@@ -163,7 +204,6 @@ def predict():
                 "error": "JSON request body is required"
             }), 400
 
-        # Check required features.
         missing_fields = [
             feature for feature in FEATURES
             if feature not in data
@@ -181,25 +221,24 @@ def predict():
                 "missing_fields": missing_fields
             }), 400
 
-        # Log feature names only, never actual input values.
         logger.info(
             "event=prediction_request request_id=%s feature_names=%s",
             g.request_id,
             sorted(FEATURES)
         )
 
-        # Prepare model input.
         sample = pd.DataFrame([{
             feature: data[feature]
             for feature in FEATURES
         }])
 
-        # Run prediction using the loaded model.
         prediction_code = int(model.predict(sample)[0])
 
         prediction = (
             "APPROVED" if prediction_code == 1 else "REJECTED"
         )
+
+        PREDICTIONS.labels(result="success").inc()
 
         logger.info(
             "event=prediction_success request_id=%s prediction=%s",
@@ -213,6 +252,8 @@ def predict():
         }), 200
 
     except Exception:
+        PREDICTIONS.labels(result="error").inc()
+
         logger.exception(
             "event=prediction_failed request_id=%s",
             getattr(g, "request_id", "unknown")
@@ -224,7 +265,20 @@ def predict():
 
 
 # --------------------------------------------------
-# 7. UNKNOWN ROUTE HANDLING
+# 8. PROMETHEUS METRICS ENDPOINT
+# --------------------------------------------------
+
+@app.get("/metrics")
+def metrics():
+    return app.response_class(
+        response=generate_latest(),
+        status=200,
+        mimetype=CONTENT_TYPE_LATEST
+    )
+
+
+# --------------------------------------------------
+# 9. UNKNOWN ROUTE HANDLING
 # --------------------------------------------------
 
 @app.errorhandler(404)
@@ -241,7 +295,7 @@ def not_found(error):
 
 
 # --------------------------------------------------
-# 8. APPLICATION STARTUP
+# 10. APPLICATION STARTUP
 # --------------------------------------------------
 
 if __name__ == "__main__":
