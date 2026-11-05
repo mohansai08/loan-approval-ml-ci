@@ -1,0 +1,116 @@
+
+name: Loan Approval Kubernetes CI-CD
+
+on:
+  workflow_run:
+    workflows: ["Loan Approval ML CI-CD"]
+    types: [completed]
+    branches: [main]
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set image tag
+        id: image
+        shell: bash
+        run: |
+          echo "tag=sha-${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/mohansai08/loan-approval-api:${{ steps.image.outputs.tag }}
+            ghcr.io/mohansai08/loan-approval-api:latest
+
+  deploy:
+    name: Deploy to Minikube
+    needs: build-and-push
+    runs-on: [self-hosted, Windows, X64]
+
+    steps:
+      - name: Deploy and verify application
+        shell: pwsh
+        env:
+          IMAGE: ghcr.io/mohansai08/loan-approval-api:sha-${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          Write-Host "Starting Kubernetes deployment..."
+
+          $previousImage = kubectl get deployment loan-approval-api -o "jsonpath={.spec.template.spec.containers[?(@.name=='loan-approval-api')].image}"
+
+          if ($LASTEXITCODE -ne 0 -or !$previousImage) {
+              throw "Could not retrieve the existing deployment image."
+          }
+
+          Write-Host "Previous image: $previousImage"
+          Write-Host "New image: $env:IMAGE"
+
+          kubectl set image deployment/loan-approval-api loan-approval-api=$env:IMAGE
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Failed to update the deployment image."
+          }
+
+          kubectl rollout status deployment/loan-approval-api --timeout=180s
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "Deployment failed. Rolling back..."
+              kubectl rollout undo deployment/loan-approval-api
+              kubectl rollout status deployment/loan-approval-api --timeout=180s
+              throw "Deployment failed. Rollback attempted."
+          }
+
+          $healthy = $false
+
+          for ($i = 1; $i -le 10; $i++) {
+              kubectl exec deployment/loan-approval-api -- python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=5).read().decode())"
+
+              if ($LASTEXITCODE -eq 0) {
+                  $healthy = $true
+                  break
+              }
+
+              Write-Host "Health check attempt $i failed. Retrying..."
+              Start-Sleep -Seconds 5
+          }
+
+          if (!$healthy) {
+              Write-Host "Health check failed. Rolling back..."
+              kubectl rollout undo deployment/loan-approval-api
+              kubectl rollout status deployment/loan-approval-api --timeout=180s
+              throw "Health verification failed. Rollback attempted."
+          }
+
+          Write-Host "Deployment and health verification successful."
+
+      - name: Show final Kubernetes status
+        if: always()
+        shell: pwsh
+        run: |
+          kubectl get deployments
+          kubectl get pods
+          kubectl get services
