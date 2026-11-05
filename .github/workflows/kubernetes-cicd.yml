@@ -75,12 +75,12 @@ jobs:
               throw "Failed to update the deployment image."
           }
 
-          kubectl rollout status deployment/loan-approval-api --timeout=360s
+          kubectl rollout status deployment/loan-approval-api --timeout=900s
 
           if ($LASTEXITCODE -ne 0) {
               Write-Host "Deployment failed. Rolling back..."
               kubectl rollout undo deployment/loan-approval-api
-              kubectl rollout status deployment/loan-approval-api --timeout=360s
+              kubectl rollout status deployment/loan-approval-api --timeout=900s
               throw "Deployment failed. Rollback attempted."
           }
 
@@ -101,7 +101,7 @@ jobs:
           if (!$healthy) {
               Write-Host "Health check failed. Rolling back..."
               kubectl rollout undo deployment/loan-approval-api
-              kubectl rollout status deployment/loan-approval-api --timeout=360s
+              kubectl rollout status deployment/loan-approval-api --timeout=900s
               throw "Health verification failed. Rollback attempted."
           }
 
